@@ -12,11 +12,13 @@ enum class Command {
 };
 
 enum class PointType {
-    Player = 'P',
+    Player = 'p',
+    PlayerOnGoal = 'P',
     Wall = '#',
     Space = ' ',
-    Box = 'O',
-    BoxPlace = '.'
+    Box = 'o',
+    BoxOnGoal = 'O',
+    Goal = '.'
 };
 
 struct Point
@@ -94,7 +96,7 @@ void updateStatus(char map[5][9], Status &status, Command command)
     }
 }
 
-void draw(char map[5][9], Status &status)
+void draw(char map[5][9], Status &status, Point flags[])
 {
     for (int i = 0; i < 5; i ++)
     {
@@ -103,11 +105,11 @@ void draw(char map[5][9], Status &status)
             const Point p = Point({ i, j });
             char out;
             if (p == status.player) {
-                out = char(PointType::Player);
+                out = char(p == flags[0] || p == flags[1] ? PointType::PlayerOnGoal : PointType::Player);
             }
             else if (p == status.boxes[0] || p == status.boxes[1])
             {
-                out = char(PointType::Box);
+                out = char(p == flags[0] || p == flags[1] ? PointType::BoxOnGoal : PointType::Box);
             }
             else
             {
@@ -137,7 +139,7 @@ int main()
 
     while (true)
     {
-        draw(map, status);
+        draw(map, status, flags);
         Command command = Command(input());
         updateStatus(map, status, command);
         if (
