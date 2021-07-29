@@ -1,8 +1,15 @@
-﻿#include <string>
+﻿//todo:
+//更多的输入文件容错
+//交互优化
+
+#include <string>
 #include <algorithm>
 #include <vector>
 #include <fstream>
 #include <iostream>
+#include <filesystem>
+#include <regex>
+#include <map>
 using namespace std;
 
 enum class Command {
@@ -39,34 +46,45 @@ public:
     void updateStatus(Command command);
     bool move(Point& point, int offsetX, int offsetY);
     bool isWin() const;
+    bool isCorrect() const;
 private:
-    Point player;
+    Point player = Point({-1, -1});
     vector<Point> boxes;
     vector<Point> goals;
-    vector<string> map;
+    char** map;
     int mapWidth;
     int mapHeight;
+    int correct;
+    bool check() const;
+    Point findAWallPoint() const;
 };
 
-vector<string> split(string str, char spe)
+char** getFormatedMap(char* str, int strLen, int width, int height)
 {
-    vector<string> strArray;
-    while (true)
+    char** map = new char*[height];
+    for (int i = 0; i < height; i++) {
+        map[i] = new char[width];
+        memset(map[i], ' ', sizeof(char) * width);
+    }
+
+    int newLineIndex = 0;
+    for (int i = 0; i < height; i++)
     {
-        const int index = str.find(spe);
-        if (index == string::npos)
+        for (int j = 0; j < width; j++)
         {
-            break;
+            if (str[newLineIndex] == '\n')
+            {
+                map[i][j] = ' ';
+            }
+            else
+            {
+                map[i][j] = str[newLineIndex];
+                newLineIndex++;
+            }
         }
-        const string s = str.substr(0, index);
-        strArray.push_back(s);
-        str.erase(0, index + 1);
+        newLineIndex++;
     }
-    if (str.length() > 0)
-    {
-        strArray.push_back(str);
-    }
-    return strArray;
+    return map;
 }
 
 char input()
@@ -88,19 +106,48 @@ char input()
     }
 }
 
-int main()
+struct getStageResult { char* mapStr; long len; };
+getStageResult getStage(string stage, map<string, string> stages)
 {
-
     ifstream infile;
-    infile.open("stages/stage-1.txt", ifstream::binary);
+    infile.open("stages/stage-" + stage + '-' + stages[stage] + ".txt", ifstream::binary);
     infile.seekg(0, ifstream::end);
     long len = infile.tellg();
     infile.seekg(0, ifstream::beg);
     char* mapStr = new char[len];
     infile.read(mapStr, len);
     infile.close();
+    return getStageResult({ mapStr, len });
+}
 
+void main()
+{
+    string partten{ "stage-(\\d)-(.*)\\.txt" };
+    regex stageFile(partten);
+    filesystem::path stagePath("./stages");
+    map<string, string> stages;
+    for (auto& file : filesystem::directory_iterator(stagePath))
+    {
+        auto filePath = file.path();
+        auto fileName = filePath.filename().string();
+        smatch result;
+        if (std::regex_match(fileName, result, stageFile)) {
+            stages[result[1]] = result[2];
+            cout << result[1] << ": " << result[2] << endl;
+        }
+    }
+
+    cout << "选择一个关卡（输入编号）：" << endl;
+    string stage;
+    getline(cin, stage);
+    auto [mapStr, len] = getStage(stage, stages);
     Status status = Status(mapStr, len);
+    if (!status.isCorrect()) {
+        cout << "关卡数据错误";
+        cin.get();
+        return;
+    }
+    cout << status.isCorrect() << endl;
 
     while (true)
     {
@@ -121,9 +168,6 @@ Status::Status(char* mapStr, int len)
     int width = 0;
     int height = 0;
     int i = 0;
-    boxes;
-    goals;
-    player;
     while (i < len)
     {
         const char currentPoint = mapStr[i];
@@ -174,11 +218,11 @@ Status::Status(char* mapStr, int len)
         height++;
     }
 
-    map = split((string)mapStr, '\n');
+    map = getFormatedMap(mapStr, len, maxWidth, height);
     mapWidth = maxWidth;
     mapHeight = height;
+    correct = check();
 }
-
 
 void Status::draw() const
 {
@@ -222,7 +266,7 @@ void Status::draw() const
             char out = j + 1 > lineLen ? ' ' : line[j];
             cout << out;
         }
-        cout << '\n';
+        cout << endl;
     }
 }
 
@@ -279,5 +323,103 @@ bool Status::isWin() const
         }
     }
     return true;
+}
+
+bool Status::isCorrect() const
+{
+    return correct;
+}
+
+const Point offsets[4] = {
+    Point({0, 1}),
+    Point({0, -1}),
+    Point({1, 0}),
+    Point({-1, 0})
+};
+bool Status::check() const
+{
+    // 0. 检查是否有player、box、goal
+    if (player.x == -1 && player.y == -1) {
+        return false;
+    }
+    if (boxes.size() == 0 || goals.size() == 0) {
+        return false;
+    }
+
+    // 1. 检查player是否在封闭区域内
+    bool* status = new bool[mapWidth * mapHeight];
+    memset(status, false, mapWidth * mapHeight);
+    status[player.x * mapWidth + player.y] = true;
+
+    vector<Point> queue;
+    queue.push_back(player);
+
+    int i = 0;
+    while (i < queue.size())
+    {
+        Point pointer = queue[i];
+        for (auto offset : offsets)
+        {
+            const int x = offset.x + pointer.x;
+            const int y = offset.y + pointer.y;
+            if (
+                x < 0
+                || x >= mapHeight
+                || y < 0
+                || y >= mapWidth
+                )
+            {
+                return false;
+            }
+            if (map[x][y] == (char)PointType::Space && status[x * mapWidth + y] == false)
+            {
+                cout << '-' << x << ',' << y << endl;
+                Point p = Point({ x, y });
+                queue.push_back(p);
+
+                status[x * mapWidth + y] = true;
+            }
+        }
+        i++;
+    }
+
+    // 2. 检查各元素是否在player可达范围内
+    for (auto box : boxes)
+    {
+        if (status[box.x * mapWidth + box.y] == false)
+        {
+            return false;
+        }
+    }
+    for (auto goal : goals)
+    {
+        if (status[goal.x * mapWidth + goal.y] == false)
+        {
+            return false;
+        }
+    }
+
+    // 3. 检查 box 和 goal 数量是否匹配
+    if (boxes.size() != goals.size()) {
+        return false;
+    }
+
+    return true;
+}
+
+Point Status::findAWallPoint() const
+{
+    Point firstPoint;
+    for (int i = 0; i < mapHeight; i++)
+    {
+        for (int j = 0; j < mapWidth; j++)
+        {
+            if (map[i][j] == (char)PointType::Wall)
+            {
+                return Point({ i, j });
+            }
+        }
+    }
+    return Point({ -1,-1 });
 }
 
